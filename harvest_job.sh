@@ -29,6 +29,10 @@ run() {
   python3 cron_kunmanga.py --days 3 --max "$MAX" || echo "kunmanga step failed"
   echo "comick:"
   python3 cron_comick.py --days 3 --max 400 || echo "comick step failed"
+  # the crawl appends a record per series, so without this the delta doubles
+  # every run and every state pull and push carries the duplicates
+  echo "compact:"
+  python3 "$ROOT/compact_delta.py" "$UI/cache/cron/kunmanga.delta.jsonl" || return 1
   echo "rows:"
   python3 "$TG/cloud/build_harvest.py" || return 1
   echo "shards:"

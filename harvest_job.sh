@@ -17,7 +17,8 @@ prepare() {
   mkdir -p "$UI/cache/cron" "$UI/cache/sources" "$UI/cache/kun_index" \
            "$TG/output" "$TG/cache/catalog" "$TG/cloud"
   cp "$ROOT"/cron_kunmanga.py "$ROOT"/cron_comick.py "$ROOT"/crawl_sources.py "$UI"/
-  cp "$ROOT"/build_harvest.py "$ROOT"/build_harvest_chapters.py "$ROOT"/build_data.py "$ROOT"/r2_sync.py "$TG/cloud"/
+  cp "$ROOT"/build_harvest.py "$ROOT"/build_harvest_chapters.py "$ROOT"/build_data.py \
+     "$ROOT"/build_library_desc.py "$ROOT"/r2_sync.py "$TG/cloud"/
   echo "state:"
   python3 "$ROOT/state_sync.py" pull || echo "state pull had gaps"
   python3 "$ROOT/state_sync.py" inputs --download --if-missing || return 1
@@ -39,6 +40,15 @@ run() {
   python3 "$TG/cloud/build_harvest_chapters.py" || return 1
   echo "shelves:"
   python3 "$TG/cloud/build_data.py" --harvest-only || return 1
+  # The harvest shelf ships no synopsis.  Fill it from the mangadex and
+  # mangaupdates rows already in R2, aligned to the rows.bin just packed.
+  # A failed merge keeps the uploaded table rather than replacing it with an
+  # empty one, so descriptions never disappear because a download hiccupped.
+  echo "descriptions:"
+  if ! python3 "$TG/cloud/build_library_desc.py" --fetch; then
+    echo "description merge skipped; keeping the uploaded meta.bin"
+    rm -f "$TG/cloud/data/library/meta.bin"
+  fi
   echo "upload:"
   cd "$TG/cloud" || return 1
   python3 r2_sync.py || return 1

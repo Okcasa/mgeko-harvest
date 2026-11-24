@@ -1,0 +1,6 @@
+ws/
+__pycache__/
+*.pyc
+*.part
+inputs.tar.gz
+.wrangler/

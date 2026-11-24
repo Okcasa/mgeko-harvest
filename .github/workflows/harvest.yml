@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   harvest:
@@ -56,3 +56,22 @@ jobs:
       - name: Save state
         if: always()
         run: bash harvest_job.sh save
+
+      # GitHub turns a scheduled workflow off after 60 days without a commit and
+      # this job only writes to R2, so a fortnightly touch keeps the cron armed
+      - name: Keep the schedule armed
+        if: always()
+        run: |
+          stamp=$(tail -n 1 .github/heartbeat.txt 2>/dev/null || true)
+          if [ -n "$stamp" ] && [ $(( $(date -u +%s) - $(date -u -d "$stamp" +%s) )) -lt 1209600 ]; then
+            echo "heartbeat is recent ($stamp); nothing to do"
+            exit 0
+          fi
+          mkdir -p .github
+          date -u +%Y-%m-%dT%H:%M:%SZ >> .github/heartbeat.txt
+          git add .github/heartbeat.txt
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "Keep the harvest schedule armed"
+          # scheduled runs check out a detached HEAD, so name the branch
+          git push origin HEAD:main

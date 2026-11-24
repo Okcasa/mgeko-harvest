@@ -1,0 +1,23 @@
+name = "mgeko-tags"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# The built page is a static asset.  The Worker renders the JSON API, the
+# per-title pages and the sitemaps, so those paths have to reach it.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/t/*", "/reader/*", "/img/*", "/sitemap.xml", "/sitemap-*.xml"]
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "mgeko-tags-data"
+
+[observability]
+enabled = true
+
+# The catalogue refresh runs at 05:00 UTC; an hour later the chapter counts are
+# settled and the one notification pass can compare them with what each device
+# last saw.  Cloudflare cron times are UTC.
+[triggers]
+crons = ["0 6 * * *"]

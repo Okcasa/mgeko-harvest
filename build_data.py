@@ -501,10 +501,14 @@ def pack_catalog():
                 known.add(slug)
                 chapters = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
                 updated = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
+                # comick serves no page images, so a reader link there would
+                # only bounce the reader out to comick.dev; link its rows to
+                # nothing and let them open the source page instead
+                reader = "" if source == "comick" else "/reader/harvest/" + source + "/" + slug
                 rows.append([
                     slug, title, url, cover, None, 0, "", [], "",
                     chapters, "", updated, 0, updated,
-                    "/reader/harvest/" + source + "/" + slug,
+                    reader,
                 ])
 
     rows.sort(key=lambda row: (row[1].lower(), row[0]))

@@ -57,13 +57,6 @@ jobs:
         if: always()
         run: bash harvest_job.sh save
 
-      # the worker's source lives in this repo now, so publishing it is part of
-      # the run: the midnight slot deploys, the other three leave it alone
-      - name: Deploy the worker
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 0 * * *'
-        working-directory: cloud
-        run: wrangler deploy --message "harvest run ${{ github.run_id }}"
-
       # GitHub turns a scheduled workflow off after 60 days without a commit and
       # this job only writes to R2, so a fortnightly touch keeps the cron armed
       - name: Keep the schedule armed

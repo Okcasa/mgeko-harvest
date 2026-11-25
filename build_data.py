@@ -483,29 +483,13 @@ def pack_catalog():
                 fetched,
                 int(first_seen.get(slug) or 0),
             ])
-    # The harvested shelves are part of the library, not a separate one: fold
-    # their rows into the same feed so the library tab, its search and the
-    # updated page all see them.  Rows are trimmed (no synopsis, no tags) to
-    # keep the whole JSON inside a Worker isolate's memory.
-    harvest_path = os.path.join(HERE, "output", "harvest.tsv")
-    if os.path.exists(harvest_path):
-        known = {row[0] for row in rows}
-        with open(harvest_path, encoding="utf-8") as fh:
-            for line in fh:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 5:
-                    continue
-                slug, title, cover, url, source = parts[:5]
-                if not slug or not title or slug in known:
-                    continue
-                known.add(slug)
-                chapters = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
-                updated = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
-                rows.append([
-                    slug, title, url, cover, None, 0, "", [], "",
-                    chapters, "", updated, 0, updated,
-                    "/reader/harvest/" + source + "/" + slug,
-                ])
+    # The harvested titles are deliberately NOT folded into this feed.  They
+    # already ship as library/rows.bin, which /api/series reads through a
+    # ranged binary index.  Copying 65k of them in here grew this JSON from
+    # ~2.5 MB to 25 MB, and parsing that on every /api/catalog or /api/fresh
+    # request pushed the Worker past its CPU limit (503, error 1102) on the
+    # free plan -- which took the Discover and Updated pages down with it.
+    # The catalogue file stays mgeko only; the harvest has its own shelf.
 
     rows.sort(key=lambda row: (row[1].lower(), row[0]))
 

@@ -164,6 +164,8 @@ def main():
                     cover = proxied("kun", cover)
                 tokens = [clean(ch.get("n")) for ch in rec.get("chapters") or [] if clean(ch.get("n"))]
                 url = clean(rec.get("url"))
+                desc = clean(rec.get("desc"))
+                genres = sorted({clean(genre) for genre in (rec.get("genres") or []) if clean(genre)})
 
                 # the series' own chapter date, never the run's clock: the
                 # sitemap lastmod for kunmanga, the newest chapter stamp Comick
@@ -181,6 +183,8 @@ def main():
                         "source": source,
                         "chapters": set(tokens),
                         "updated": stamp,
+                        "desc": desc,
+                        "genres": genres,
                     }
                     order.append(slug)
                 elif current["source"] == source:
@@ -189,6 +193,8 @@ def main():
                     current["url"] = url or current["url"]
                     current["chapters"].update(tokens)
                     current["updated"] = max(current.get("updated", 0), stamp)
+                    current["desc"] = desc or current["desc"]
+                    current["genres"] = genres or current["genres"]
                 # another source with the same slug: keep the higher-priority one
 
     rows = [(slug, picked[slug]) for slug in order]
@@ -202,8 +208,25 @@ def main():
             fh.write(f"{slug}\t{item['title']}\t{item['cover']}\t{item['url']}\t{item['source']}"
                      f"\t{len(item['chapters'])}\t{item.get('updated', 0)}\n")
 
+    # The crawl already has the source's own synopsis, but it is far too large
+    # to repeat in rows.bin and its shards.  It goes beside them as one line per
+    # shipped slug instead, and build_library_desc.py aligns it to the rows it
+    # just packed.  The key is the slug, so the join is exact rather than a
+    # guess from a title.
+    sidecar = os.path.join(os.path.dirname(OUT), "harvest_meta.jsonl")
+    with_desc = 0
+    with open(sidecar + ".tmp", "w", encoding="utf-8") as fh:
+        for slug, item in rows:
+            if not item["desc"]:
+                continue
+            with_desc += 1
+            fh.write(json.dumps({"slug": slug, "d": item["desc"], "g": item["genres"]},
+                                ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.replace(sidecar + ".tmp", sidecar)
+
     with_cover = sum(1 for _, item in rows if item["cover"])
     print(f"harvest  {len(rows):,} rows  {with_cover:,} with covers  "
+          f"{with_desc:,} with synopses  "
           f"{dropped:,} already in mangagg  {counts}  -> {OUT}")
 
 

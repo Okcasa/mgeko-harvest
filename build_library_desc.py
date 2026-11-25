@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Fill the harvest shelf's missing descriptions from the other two catalogues.
 
-The library shelf (kunmanga + bato + comick) ships no synopsis of its own, while
-mangadex and mangaupdates already in R2 carry one per title.  A lot of the same
-stories appear in both, so this walks the library rows in their packed order and
-writes a `meta.bin` beside them: a title page (and the app's sheet) then reads
-its own record with one ranged GET, exactly like the other shelves.
+The library shelf (kunmanga + bato + comick) ships no synopsis of its own.  Its
+own crawl has one per title, written beside the rows as `harvest_meta.jsonl` by
+build_harvest.py, and that is the first source here: same slug, so the match is
+exact.  Titles the crawl had no text for fall back to mangadex and mangaupdates
+already in R2, matched by title.  Either way this walks the library rows in their
+packed order and writes a `meta.bin` beside them: a title page (and the app's
+story sheet) then reads its own record with one ranged GET, exactly like the
+other shelves.
 
 The record is only written when a real synopsis was found -- boilerplate such as
 "No synopsis has been added for this manga yet." does not count -- and a title
@@ -37,6 +40,7 @@ ROOT = os.path.dirname(HERE)
 
 META_MAGIC = b"MKMT"
 DESC_CAP = 1400
+TAG_CAP = 12
 # a three-character title like "1999" or "!" says nothing about which work it
 # is; matching those across catalogues produces confident nonsense
 MIN_KEY = 4
@@ -58,6 +62,8 @@ ARCHIVES = {
 # first two alts are kept per record, so this is a bonus pass, not the main one.
 DEX_META_KEY = "mangadex/meta.bin"
 ALT_MIN_KEY = 6
+# the crawl's own synopses, written beside output/harvest.tsv by build_harvest.py
+HARVEST_META = os.path.join(ROOT, "output", "harvest_meta.jsonl")
 WRANGLER = ["wrangler"] if shutil.which("wrangler") else ["npx", "wrangler@4"]
 
 
@@ -205,6 +211,31 @@ def load_alt_titles(path):
     return found, len(ambiguous)
 
 
+def load_harvest_meta(path):
+    """slug -> (synopsis, genres) from the harvest crawl's own records.
+
+    One line per shipped row, keyed by the slug itself, so unlike the archive
+    passes there is nothing to disambiguate: the text belongs to that row.
+    """
+    found = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                raw = json.loads(line)
+            except ValueError:
+                continue
+            slug = clean(raw.get("slug"))
+            synopsis = clean(raw.get("d"))
+            if not slug or not real_synopsis(synopsis):
+                continue
+            genres = [clean(genre) for genre in (raw.get("g") or []) if clean(genre)]
+            found[slug] = (shorten(synopsis), genres[:TAG_CAP])
+    return found
+
+
 def write_meta(path, records):
     at = array.array("I")
     payload = bytearray()
@@ -233,6 +264,8 @@ def main():
     parser.add_argument("--dex", help="mangadex rows TSV")
     parser.add_argument("--mu", help="mangaupdates rows TSV")
     parser.add_argument("--dex-meta", help="mangadex meta.bin, for alternate titles")
+    parser.add_argument("--harvest-meta", default=HARVEST_META,
+                        help="slug -> synopsis, written by build_harvest.py")
     parser.add_argument("--fetch", action="store_true",
                         help="download the archives from R2 when no local copy exists")
     parser.add_argument("--stats", action="store_true", help="report coverage, write nothing")
@@ -268,18 +301,27 @@ def main():
     alt, alt_ambiguous = ({}, 0) if not dex_meta_path else load_alt_titles(dex_meta_path)
     print(f"mangadex alt titles: {len(alt):,} usable ({alt_ambiguous:,} ambiguous) "
           f"from {dex_meta_path or 'missing'}")
-    if not dex and not mu and not alt:
-        print("no archive rows available; refusing to write an empty meta.bin", file=sys.stderr)
+    own = load_harvest_meta(args.harvest_meta) if os.path.isfile(args.harvest_meta) else {}
+    print(f"harvest crawl: {len(own):,} from {args.harvest_meta if own else 'missing'}")
+    if not dex and not mu and not alt and not own:
+        print("no description source available; refusing to write an empty meta.bin", file=sys.stderr)
         return 1
 
     records = []
     filled = 0
-    by_source = {"mangadex": 0, "mangaupdates": 0, "mangadex-alt": 0}
+    by_source = {"harvest": 0, "mangadex": 0, "mangaupdates": 0, "mangadex-alt": 0}
     by_lib = {}
     for line in rows:
         parts = line.split("\t")
         if len(parts) < 5:
             records.append(None)
+            continue
+        own_hit = own.get(parts[0])
+        if own_hit:
+            records.append({"d": own_hit[0], "g": own_hit[1], "s": "", "t": "", "y": ""})
+            filled += 1
+            by_source["harvest"] += 1
+            by_lib[parts[4]] = by_lib.get(parts[4], 0) + 1
             continue
         key = title_key(parts[1])
         hit = dex.get(key) if len(key) >= MIN_KEY else None
@@ -302,7 +344,7 @@ def main():
         by_lib[parts[4]] = by_lib.get(parts[4], 0) + 1
 
     print(f"descriptions: {filled:,}/{len(rows):,} rows ({filled / len(rows):.1%})")
-    print("  by archive:", by_source)
+    print("  by source:", by_source)
     print("  by shelf:", by_lib)
     if args.stats:
         return 0

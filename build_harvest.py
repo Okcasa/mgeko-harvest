@@ -138,6 +138,7 @@ def main():
     picked = {}
     order = []
     dropped = 0
+    empty = 0
 
     for path in FILES:
         if not os.path.exists(path):
@@ -163,6 +164,14 @@ def main():
                 if source == "kun":
                     cover = proxied("kun", cover)
                 tokens = [clean(ch.get("n")) for ch in rec.get("chapters") or [] if clean(ch.get("n"))]
+                # a title with no chapters is not a story anyone can read, and
+                # the reader shards skip it anyway: shipping the row only put a
+                # card in the feed whose reader answered "no title".  A later
+                # crawl that finds a chapter rebuilds the row, so nothing is
+                # lost by leaving it out until then.
+                if not tokens:
+                    empty += 1
+                    continue
                 url = clean(rec.get("url"))
                 desc = clean(rec.get("desc"))
                 genres = sorted({clean(genre) for genre in (rec.get("genres") or []) if clean(genre)})
@@ -227,7 +236,8 @@ def main():
     with_cover = sum(1 for _, item in rows if item["cover"])
     print(f"harvest  {len(rows):,} rows  {with_cover:,} with covers  "
           f"{with_desc:,} with synopses  "
-          f"{dropped:,} already in mangagg  {counts}  -> {OUT}")
+          f"{dropped:,} already in mangagg  {empty:,} with no chapters  "
+          f"{counts}  -> {OUT}")
 
 
 if __name__ == "__main__":

@@ -572,6 +572,12 @@ def pack_catalog():
              and (len(row) == 14 or int(row[11] or 0) > 0)]
     fresh.sort(key=lambda pair: (-pair[0], pair[1]))
     dump("fresh.json", fresh)
+    # /api/fresh then needs the row behind every stamp, and freshness has nothing
+    # to do with row order: the newest ~1,250 titles live in all 284 shards, so
+    # resolving fresh.json pulled the whole catalogue (~25 MB) on a cold colo and
+    # the shelf took four seconds.  The same pairs ship with the row inlined --
+    # one object, one read.
+    dump("fresh-rows.json", [[stamp, rows[index]] for stamp, index in fresh])
 
     # the sitemap takes the most-read ones: views is the only popularity signal
     # mgeko publishes, and a title with none is nobody's search yet

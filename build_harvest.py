@@ -31,11 +31,13 @@ FILES = [
 ]
 SOURCES = {"kunmanga": "kun", "bato1": "bato", "comick": "comick"}
 
-# the three stamp files, all pulled or written before this runs.  They hold the
-# only honest update dates the harvest has: kunmanga's sitemap lastmod per
-# series, bato1's sitemap lastmod per series (bato_stamps.py), and Comick's
-# newest chapter stamp per comic.
+# the stamp files, all pulled or written before this runs.  They hold the only
+# honest update dates the harvest has: kunmanga's sitemap lastmod per series
+# (the crawl state plus the full sitemap walk in kun_stamps.py), bato1's sitemap
+# lastmod per series (bato_stamps.py), and Comick's newest chapter stamp per
+# comic.
 STATE_KUN = os.path.join(UI, "cache", "cron", "kunmanga.json")
+STATE_KUN_STAMPS = os.path.join(UI, "cache", "cron", "kun_stamps.json")
 STATE_BATO = os.path.join(UI, "cache", "cron", "bato.json")
 STATE_COMICK = os.path.join(UI, "cache", "cron", "comick.json")
 PRIORITY = {"kun": 0, "bato": 1, "comick": 2}
@@ -92,6 +94,21 @@ def load_update_stamps():
                     kun[str(slug)] = int(epoch)
                 except (TypeError, ValueError):
                     continue
+    except (OSError, ValueError):
+        pass
+    # the crawl state only names the series a run fetched; kunmanga publishes a
+    # lastmod for all ~97k, so the sitemap walk fills the rest.  Union, newest
+    # date wins: a series the crawl stamped months ago may have moved since.
+    try:
+        with open(STATE_KUN_STAMPS, encoding="utf-8") as fh:
+            for slug, epoch in (json.load(fh).get("stamps") or {}).items():
+                try:
+                    epoch = int(epoch)
+                except (TypeError, ValueError):
+                    continue
+                slug = str(slug)
+                if epoch > kun.get(slug, 0):
+                    kun[slug] = epoch
     except (OSError, ValueError):
         pass
     try:

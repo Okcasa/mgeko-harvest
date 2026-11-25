@@ -32,6 +32,10 @@ run() {
   python3 cron_comick.py --days 3 --max 400 || echo "comick step failed"
   # bato1 has no incremental crawler: its shelf is the original import, and its
   # dates come from the series sitemaps, 18 files of one lastmod per series
+  # the crawl state only holds the series a run fetched; kunmanga's five series
+  # sitemaps carry a date for all ~97k, and that is where untouched rows get one
+  echo "kun dates:"
+  python3 "$ROOT/kun_stamps.py" || echo "kun date step failed"
   echo "bato dates:"
   python3 "$ROOT/bato_stamps.py" || echo "bato date step failed"
   # the crawl appends a record per series, so without this the delta doubles

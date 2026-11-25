@@ -30,6 +30,7 @@ import re
 import shutil
 import struct
 import sys
+import time
 from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -498,6 +499,49 @@ def pack_catalog():
     payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     with open(os.path.join(folder, "rows.json"), "wb") as fh:
         fh.write(payload)
+
+    # ---- sharded copies -------------------------------------------------
+    # The Worker used to parse this whole array on every /api/catalog,
+    # /api/fresh, /api/about and /api/story request.  At 7k rows with their
+    # synopses that is tens of milliseconds of CPU, over the free plan's
+    # budget, so a cold isolate answered 503 ("Exceeded CPU Limit").  The same
+    # rows also ship as 256-row shards plus the small indexes those routes
+    # actually need, so a page decodes one or two ~200 KB files instead.
+    SHARD = 256
+
+    def dump(name, data):
+        with open(os.path.join(folder, name), "wb") as fh:
+            fh.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+    # a shrunken catalogue must not leave yesterday's shards behind
+    for name in os.listdir(folder):
+        if re.fullmatch(r"shard-\d{3}\.json", name):
+            os.remove(os.path.join(folder, name))
+    for start in range(0, len(rows), SHARD):
+        dump("shard-%03d.json" % (start // SHARD), rows[start:start + SHARD])
+    dump("manifest.json", {"rows": len(rows), "shard": SHARD})
+    # lowercased titles stay aligned to row numbers: search ranking reads only
+    # this list, and a hit is a row number the shard reader can fetch
+    dump("titles.json", [row[1].lower() for row in rows])
+    dump("by-slug.json", {row[0]: index for index, row in enumerate(rows)})
+    dump("cards.json", [[row[0], row[1], row[3] or ""] for row in rows])
+    genres = {}
+    for index, row in enumerate(rows):
+        for genre in row[7] or []:
+            genres.setdefault(genre, []).append(index)
+    dump("genres.json", genres)
+    read_order = [(index, int(row[5] or 0)) for index, row in enumerate(rows)
+                  if int(row[5] or 0) > 0]
+    read_order.sort(key=lambda pair: (-pair[1], pair[0]))
+    dump("read-order.json", [pair[0] for pair in read_order])
+    # [stamp, row] newest first.  The Worker re-applies the 7-day cutoff on
+    # every request, so a title that ages out between uploads still drops off.
+    cutoff = int(time.time()) - 7 * 86400
+    fresh = [[max(int(row[11] or 0), int(row[13] or 0)), index]
+             for index, row in enumerate(rows)
+             if max(int(row[11] or 0), int(row[13] or 0)) >= cutoff]
+    fresh.sort(key=lambda pair: (-pair[0], pair[1]))
+    dump("fresh.json", fresh)
 
     # the sitemap takes the most-read ones: views is the only popularity signal
     # mgeko publishes, and a title with none is nobody's search yet

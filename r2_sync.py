@@ -55,9 +55,15 @@ def objects():
             out.append((shelf + "/" + name, os.path.join(folder, name)))
         if tsv:
             out.append((shelf + "/rows.bin", os.path.join(OUT, tsv)))
-    feed = os.path.join(DATA, "catalog", "rows.json")
-    if os.path.exists(feed):
-        out.append(("catalog/rows.json", feed))
+    # the mgeko catalogue: rows.json plus the shards and indexes build_data.py
+    # writes beside it.  The Worker reads the shards, so they must travel with
+    # every upload -- version.json goes up last and switches them over together.
+    catalog = os.path.join(DATA, "catalog")
+    if os.path.isdir(catalog):
+        for name in sorted(os.listdir(catalog)):
+            if name.endswith(".tmp"):
+                continue
+            out.append(("catalog/" + name, os.path.join(catalog, name)))
     sitemaps = os.path.join(DATA, "sitemap")
     if os.path.isdir(sitemaps):
         for name in sorted(os.listdir(sitemaps)):

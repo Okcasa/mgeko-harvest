@@ -31,10 +31,12 @@ FILES = [
 ]
 SOURCES = {"kunmanga": "kun", "bato1": "bato", "comick": "comick"}
 
-# the two cron state files, both pulled before this runs.  They hold the only
-# honest update dates the harvest has: kunmanga's sitemap lastmod per series and
-# Comick's newest chapter stamp per comic.
+# the three stamp files, all pulled or written before this runs.  They hold the
+# only honest update dates the harvest has: kunmanga's sitemap lastmod per
+# series, bato1's sitemap lastmod per series (bato_stamps.py), and Comick's
+# newest chapter stamp per comic.
 STATE_KUN = os.path.join(UI, "cache", "cron", "kunmanga.json")
+STATE_BATO = os.path.join(UI, "cache", "cron", "bato.json")
 STATE_COMICK = os.path.join(UI, "cache", "cron", "comick.json")
 PRIORITY = {"kun": 0, "bato": 1, "comick": 2}
 
@@ -82,12 +84,21 @@ def load_update_stamps():
     release dates.  A row whose chapter date is unknown keeps 0 and stays out of
     the updated feed instead of claiming it moved today.
     """
-    kun, comick = {}, {}
+    kun, bato, comick = {}, {}, {}
     try:
         with open(STATE_KUN, encoding="utf-8") as fh:
             for slug, epoch in (json.load(fh).get("series") or {}).items():
                 try:
                     kun[str(slug)] = int(epoch)
+                except (TypeError, ValueError):
+                    continue
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(STATE_BATO, encoding="utf-8") as fh:
+            for slug, epoch in (json.load(fh).get("stamps") or {}).items():
+                try:
+                    bato[str(slug)] = int(epoch)
                 except (TypeError, ValueError):
                     continue
     except (OSError, ValueError):
@@ -101,7 +112,7 @@ def load_update_stamps():
                     continue
     except (OSError, ValueError):
         pass
-    return {"kun": kun, "comick": comick}
+    return {"kun": kun, "bato": bato, "comick": comick}
 
 
 def main():

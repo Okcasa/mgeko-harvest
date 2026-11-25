@@ -37,6 +37,8 @@ MOVING = [
     ("state/kunmanga.json", "mgeko-tags-ui/cache/cron/kunmanga.json", False),
     ("state/kunmanga.delta.jsonl.gz", "mgeko-tags-ui/cache/cron/kunmanga.delta.jsonl", True),
     ("state/comick.json", "mgeko-tags-ui/cache/cron/comick.json", False),
+    # bato1's per-series sitemap dates, written by bato_stamps.py each run
+    ("state/bato.json", "mgeko-tags-ui/cache/cron/bato.json", False),
     ("state/comick.jsonl.gz", "mgeko-tags-ui/cache/sources/comick.jsonl", True),
     ("state/import_slugs.txt.gz", "mgeko-tags-ui/cache/import_slugs.txt", True),
     ("state/upload-state.json", "mgeko-tags/cloud/.upload-state.json", False),

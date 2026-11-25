@@ -30,6 +30,7 @@ Output, under cache/sources/ by default:
 """
 
 import argparse
+import datetime as dt
 import gzip
 import html
 import json
@@ -245,7 +246,20 @@ def chapter_url(source, slug, token):
     return BATO + "/read/" + slug + "/chapter-" + token
 
 
-def record(source, slug, title, desc, cover, chapters, url):
+def stamp_epoch(value):
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return int(parsed.timestamp())
+
+
+def record(source, slug, title, desc, cover, chapters, url, updated=0):
     tokens = sorted({t for t in chapters if CH_TOKEN_RE.match(t)}, key=chapter_key)
     return {
         "source": "kunmanga" if source == "kun" else "bato1",
@@ -255,6 +269,9 @@ def record(source, slug, title, desc, cover, chapters, url):
         "cover": cover,
         "url": url,
         "media": source,
+        # the newest chapter's sitemap lastmod; 0 when the walk saw no date, so
+        # a record never claims a day it cannot back up
+        "updated": int(updated or 0),
         "chapters": [{"n": t, "u": chapter_url(source, slug, t)} for t in tokens],
     }
 
@@ -508,11 +525,12 @@ def assemble(source, series_path, chapters_path, out_path):
         )
         rows = sorted_path
 
-    def write(item, tokens):
+    def write(item, tokens, updated=0):
         merged = record(source, item["slug"], item.get("title"), item.get("desc"),
                         item.get("cover"), tokens,
                         item.get("url") or (KUN + "/manga/" + item["slug"] + "/" if source == "kun"
-                                            else BATO + "/manga/" + item["slug"]))
+                                            else BATO + "/manga/" + item["slug"]),
+                        updated=updated)
         handle.write(json.dumps(merged, ensure_ascii=False) + "\n")
 
     with open(out_path, "w", encoding="utf-8") as handle:
@@ -521,24 +539,29 @@ def assemble(source, series_path, chapters_path, out_path):
         if rows:
             current = None
             tokens = []
+            newest = 0
             with open(rows, encoding="utf-8") as source_rows:
                 for line in source_rows:
                     parts = line.rstrip("\n").split("\t")
                     if len(parts) < 2:
                         continue
                     slug, token = parts[0], parts[1]
+                    stamp = stamp_epoch(parts[2]) if len(parts) > 2 else None
                     if current is not None and slug != current:
                         item = meta.get(current)
                         if item:
-                            write(item, tokens)
+                            write(item, tokens, newest)
                             written += 1
                         tokens = []
+                        newest = 0
                     current = slug
                     tokens.append(token)
+                    if stamp:
+                        newest = max(newest, stamp)
                 if current is not None:
                     item = meta.get(current)
                     if item:
-                        write(item, tokens)
+                        write(item, tokens, newest)
                         written += 1
             if rows:
                 with open(rows, encoding="utf-8") as source_rows:
@@ -549,7 +572,8 @@ def assemble(source, series_path, chapters_path, out_path):
             if slug in seen:
                 continue
             item = meta[slug]
-            write(item, [c["n"] for c in item.get("chapters") or []])
+            write(item, [c["n"] for c in item.get("chapters") or []],
+                  int(item.get("updated") or 0))
             written += 1
     print("assembled %d %s records into %s" % (written, source, out_path), flush=True)
     return written

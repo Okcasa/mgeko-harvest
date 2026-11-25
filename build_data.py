@@ -484,21 +484,41 @@ def pack_catalog():
                 fetched,
                 int(first_seen.get(slug) or 0),
             ])
-    # The harvested titles are deliberately NOT folded into this feed.  They
-    # already ship as library/rows.bin, which /api/series reads through a
-    # ranged binary index.  Copying 65k of them in here grew this JSON from
-    # ~2.5 MB to 25 MB, and parsing that on every /api/catalog or /api/fresh
-    # request pushed the Worker past its CPU limit (503, error 1102) on the
-    # free plan -- which took the Discover and Updated pages down with it.
-    # The catalogue file stays mgeko only; the harvest has its own shelf.
+    # The harvested titles ride along so the app's library tab stays one list.
+    # They carry their reader path in field 14, which is what the per-title
+    # indexes below use to stay mgeko-only (and small): by-slug, cards and the
+    # updated feed skip them, while the rows themselves still ship as shards.
+    # Parsing one 72k-row blob is what took the free-plan Worker past its CPU
+    # limit, so nothing here is ever read as a whole file again.
+    harvest_path = os.path.join(HERE, "output", "harvest.tsv")
+    if os.path.exists(harvest_path):
+        known = {row[0] for row in rows}
+        with open(harvest_path, encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5:
+                    continue
+                slug, title, cover, url, source = parts[:5]
+                if not slug or not title or slug in known:
+                    continue
+                known.add(slug)
+                chapters = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
+                updated = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
+                # only the chapter date goes in: first-seen is left 0 so a
+                # title we merely discovered is not reported as updated
+                rows.append([
+                    slug, title, url, cover, None, 0, "", [], "",
+                    chapters, "", updated, 0, 0,
+                    "/reader/harvest/" + source + "/" + slug,
+                ])
 
     rows.sort(key=lambda row: (row[1].lower(), row[0]))
 
     folder = os.path.join(OUT, "catalog")
     os.makedirs(folder, exist_ok=True)
+    # rows.json is gone: it was the file every read parsed at once.  The
+    # shards below are the feed now, and no route asks for the old object.
     payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    with open(os.path.join(folder, "rows.json"), "wb") as fh:
-        fh.write(payload)
 
     # ---- sharded copies -------------------------------------------------
     # The Worker used to parse this whole array on every /api/catalog,
@@ -523,8 +543,13 @@ def pack_catalog():
     # lowercased titles stay aligned to row numbers: search ranking reads only
     # this list, and a hit is a row number the shard reader can fetch
     dump("titles.json", [row[1].lower() for row in rows])
-    dump("by-slug.json", {row[0]: index for index, row in enumerate(rows)})
-    dump("cards.json", [[row[0], row[1], row[3] or ""] for row in rows])
+    # a harvested title is addressed as story/series, so only the mgeko rows
+    # need a slug -> row table: 7k entries instead of 72k
+    dump("by-slug.json", {row[0]: index for index, row in enumerate(rows) if len(row) == 14})
+    # related rails only ever draw from the genre pools (mgeko rows), so the
+    # card table is sparse instead of one entry per harvested title
+    dump("cards.json", {str(index): [row[0], row[1], row[3] or ""]
+                         for index, row in enumerate(rows) if len(row) == 14})
     genres = {}
     for index, row in enumerate(rows):
         for genre in row[7] or []:
@@ -536,10 +561,15 @@ def pack_catalog():
     dump("read-order.json", [pair[0] for pair in read_order])
     # [stamp, row] newest first.  The Worker re-applies the 7-day cutoff on
     # every request, so a title that ages out between uploads still drops off.
+    # An mgeko row may date from its chapter bake or from the day the catalogue
+    # first listed it.  A harvested row only has the chapter date its crawler
+    # observed (sitemap lastmod / Comick's newest chapter), so one without a
+    # stamp stays out rather than pretending it moved today.
     cutoff = int(time.time()) - 7 * 86400
     fresh = [[max(int(row[11] or 0), int(row[13] or 0)), index]
              for index, row in enumerate(rows)
-             if max(int(row[11] or 0), int(row[13] or 0)) >= cutoff]
+             if max(int(row[11] or 0), int(row[13] or 0)) >= cutoff
+             and (len(row) == 14 or int(row[11] or 0) > 0)]
     fresh.sort(key=lambda pair: (-pair[0], pair[1]))
     dump("fresh.json", fresh)
 

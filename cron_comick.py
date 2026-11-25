@@ -158,6 +158,7 @@ def save_records(records):
 def recent_comics(days, pages):
     cutoff = int((dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).timestamp())
     found = {}
+    stamps = {}
     newest = 0
     for page in range(max(1, pages)):
         feed = get(API + "/chapter?lang=en&page=" + str(page) + "&limit=100")
@@ -177,11 +178,14 @@ def recent_comics(days, pages):
             hid = clean(comic.get("hid"))
             if slug and hid:
                 found[slug] = hid
+                # the newest chapter of this comic, which is the date the
+                # updated feed needs -- the run's clock is not
+                stamps[slug] = max(stamps.get(slug, 0), stamp)
         time.sleep(RATE)
         oldest = iso_epoch(feed[-1].get("last_at") or feed[-1].get("created_at"))
         if oldest is not None and oldest < cutoff:
             break
-    return found, newest
+    return found, newest, stamps
 
 
 def main(argv=None):
@@ -194,7 +198,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     started = time.time()
-    wanted, newest = recent_comics(args.days, args.pages)
+    wanted, newest, stamps = recent_comics(args.days, args.pages)
     print("comick: %d comics with a chapter in the last %d day(s)"
           % (len(wanted), args.days), flush=True)
     if args.dry_run:
@@ -213,7 +217,9 @@ def main(argv=None):
     failed = 0
     for index, (slug, hid) in enumerate(wanted.items(), 1):
         try:
-            records[slug] = comic_record(slug, hid, RATE)
+            record = comic_record(slug, hid, RATE)
+            record["updated"] = stamps.get(slug) or record.get("updated") or 0
+            records[slug] = record
             saved += 1
         except Exception as err:  # noqa: BLE001 - one title must not stop the run
             failed += 1

@@ -30,6 +30,12 @@ FILES = [
     os.path.join(UI, "cache", "sources", "comick.jsonl"),
 ]
 SOURCES = {"kunmanga": "kun", "bato1": "bato", "comick": "comick"}
+
+# the two cron state files, both pulled before this runs.  They hold the only
+# honest update dates the harvest has: kunmanga's sitemap lastmod per series and
+# Comick's newest chapter stamp per comic.
+STATE_KUN = os.path.join(UI, "cache", "cron", "kunmanga.json")
+STATE_COMICK = os.path.join(UI, "cache", "cron", "comick.json")
 PRIORITY = {"kun": 0, "bato": 1, "comick": 2}
 
 sys.path.insert(0, UI)
@@ -66,8 +72,41 @@ def load_mangagg():
     return slugs
 
 
+def load_update_stamps():
+    """source -> {slug: the epoch its newest chapter arrived}.
+
+    Every file this script reads was rewritten by the crawler minutes ago, so a
+    time.time() stamp (or a file mtime) says nothing about the series and would
+    mark the whole file updated.  That is exactly how the feed came to hold
+    23,733 titles sharing three bake timestamps: 98% of it was bake time, not
+    release dates.  A row whose chapter date is unknown keeps 0 and stays out of
+    the updated feed instead of claiming it moved today.
+    """
+    kun, comick = {}, {}
+    try:
+        with open(STATE_KUN, encoding="utf-8") as fh:
+            for slug, epoch in (json.load(fh).get("series") or {}).items():
+                try:
+                    kun[str(slug)] = int(epoch)
+                except (TypeError, ValueError):
+                    continue
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(STATE_COMICK, encoding="utf-8") as fh:
+            for slug, epoch in (json.load(fh).get("stamps") or {}).items():
+                try:
+                    comick[str(slug)] = int(epoch)
+                except (TypeError, ValueError):
+                    continue
+    except (OSError, ValueError):
+        pass
+    return {"kun": kun, "comick": comick}
+
+
 def main():
     taken = load_mangagg()
+    stamps = load_update_stamps()
     picked = {}
     order = []
     dropped = 0
@@ -98,10 +137,12 @@ def main():
                 tokens = [clean(ch.get("n")) for ch in rec.get("chapters") or [] if clean(ch.get("n"))]
                 url = clean(rec.get("url"))
 
-                # the delta and comick files are what the cron just touched, so
-                # their rows carry a fresh stamp and land in the updated feed
-                touched = path.endswith("kunmanga.delta.jsonl") or path.endswith("comick.jsonl")
-                stamp = int(time.time()) if touched else int(rec.get("updated") or 0)
+                # the series' own chapter date, never the run's clock: the
+                # sitemap lastmod for kunmanga, the newest chapter stamp Comick
+                # put on the record, and the record's own field for anything
+                # that has one.  Unknown stays 0 and the row simply does not
+                # appear as freshly updated.
+                stamp = stamps.get(source, {}).get(slug) or int(rec.get("updated") or 0)
 
                 current = picked.get(slug)
                 if current is None:

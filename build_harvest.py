@@ -31,6 +31,13 @@ FILES = [
 ]
 SOURCES = {"kunmanga": "kun", "bato1": "bato", "comick": "comick"}
 
+# Comick is out.  It stopped hosting pages (comick.dev is a wiki now, and every
+# chapter its API serves carries md_images: []), so a comick row is a card that
+# cannot be read: the reader answers "no chapter" for chapter 1 of every one of
+# them.  Titles still appear on kunmanga/bato1 under their own crawls, which is
+# where a readable row comes from now.
+SKIP_SOURCES = {"comick"}
+
 # the stamp files, all pulled or written before this runs.  They hold the only
 # honest update dates the harvest has: kunmanga's sitemap lastmod per series
 # (the crawl state plus the full sitemap walk in kun_stamps.py), bato1's sitemap
@@ -139,6 +146,7 @@ def main():
     order = []
     dropped = 0
     empty = 0
+    comick_rows = 0
 
     for path in FILES:
         if not os.path.exists(path):
@@ -156,6 +164,9 @@ def main():
                 slug = clean(rec.get("slug"))
                 title = clean(clean_title(rec.get("title"), slug))
                 if not source or not slug or not title:
+                    continue
+                if source in SKIP_SOURCES:
+                    comick_rows += 1
                     continue
                 if slug in taken:
                     dropped += 1
@@ -237,6 +248,7 @@ def main():
     print(f"harvest  {len(rows):,} rows  {with_cover:,} with covers  "
           f"{with_desc:,} with synopses  "
           f"{dropped:,} already in mangagg  {empty:,} with no chapters  "
+          f"{comick_rows:,} comick skipped  "
           f"{counts}  -> {OUT}")
 
 

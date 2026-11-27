@@ -18,7 +18,7 @@ prepare() {
            "$TG/output" "$TG/cache/catalog" "$TG/cloud"
   cp "$ROOT"/cron_kunmanga.py "$ROOT"/cron_comick.py "$ROOT"/crawl_sources.py "$UI"/
   cp "$ROOT"/build_harvest.py "$ROOT"/build_harvest_chapters.py "$ROOT"/build_data.py \
-     "$ROOT"/build_library_desc.py "$ROOT"/r2_sync.py "$TG/cloud"/
+     "$ROOT"/build_library_desc.py "$ROOT"/build_complete.py "$ROOT"/r2_sync.py "$TG/cloud"/
   echo "state:"
   python3 "$ROOT/state_sync.py" pull || echo "state pull had gaps"
   python3 "$ROOT/state_sync.py" inputs --download --if-missing || return 1
@@ -60,6 +60,13 @@ run() {
   echo "upload:"
   cd "$TG/cloud" || return 1
   python3 r2_sync.py || return 1
+  # MangaDex's own publication status, matched to the rows just uploaded: this
+  # is the list behind the app's "completed" badge.  A failed merge keeps the
+  # uploaded one rather than replacing it with a half-built file, and it is not
+  # worth failing a whole harvest run over.
+  echo "completed:"
+  python3 "$TG/cloud/build_complete.py" --rows "$TG/output/harvest.tsv" --upload || \
+    echo "completion list skipped; keeping the uploaded one"
 }
 
 save() {
